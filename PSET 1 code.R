@@ -25,11 +25,6 @@ fhouse <- import("Country_and_Territory_Ratings_and_Statuses_FIW1973-2021.xlsx",
                  sheet = "Country Ratings, Statuses ",
                  na = "-")
 
-
-#############################
-####### Question 2.a ########
-#############################
-
 ### Cleaning the data by reconfiguring it such that each observation corresponds to one country-year.
 
 # Filter the years 1995 to 2020
@@ -82,10 +77,6 @@ status <- c(rep("Free", 6), rep("Not Free", 6), rep("Partially Free", 6))
 
 fh_2a <- data_frame(year, status, n)
 
-
-
-
-
 ### Line Plot
 ggplotly(ggplot(fh_2a, aes(x = year, y = n)) + 
            geom_line(aes(color = factor(status, levels = c("Not Free", "Partially Free", "Free")), linetype = factor(status, levels = c("Not Free", "Partially Free", "Free"))), lwd=1) + 
@@ -95,11 +86,6 @@ ggplotly(ggplot(fh_2a, aes(x = year, y = n)) +
            scale_color_manual("Status", values = c("Partially Free" = "#a6cee3", "Not Free" = "#1f78b4", "Free" = "#b2df8a")))
 
 # The data from Freedom House shows a positive trend in between 1995 and 2000, with the number of "Not Free" (NF) and "Partially Free" (PF) countries decreasing, and "Free" (F) countries increasing proportionally. From 2000-2005, while there is still an increase in the number of F countries, we see a slight downtick in PF countries as the number of NF countries increases towards 2005.  Since 2005, we see the wave of democratization reversing itself as there is simultaneously a decrease in the number of F countries and an increase in the number of PF countries while the number of NF countries stays roughly the same. 
-
-
-#############################
-####### Question 2.b ########
-#############################
 
 # CLean the data again, this time keeping the CF and PR. 
 fh_2b <- fhouse
@@ -174,10 +160,6 @@ ggplotly(p2)
 
 ## From mid-1970s to early 1980s, the number of countries improving their democracies and the number of countries worsening their democracies was relatively on par with one another. From the mid-1980s to late 2000s (with one exception spiking for worsen in 1993), the number of improved countries outpaces those that worsen. However, since the late 2000s, we see the number of countries improving their democracies decreasing fairly sharply  as the number of worsening countries increases. This may suggest that there may be some general degradation of support for democracy and that the processes of democratization and de-democratization aren't necessarily correlated as the actions of one country may not have as much influence over the change improvement / worsening of democracy of other countries.
 
-#############################
-####### Question 2.c ########
-#############################
-
 ## Merging the data between UN and Freedom House, filtering 2005 and 2020
 
 un_data <- read.csv("UNSD — Methodology.csv")
@@ -229,11 +211,6 @@ grid.arrange(p_AS + theme(legend.position = 'none'), p_AF + theme(legend.positio
 
 
 ## This graph paints a grim picture of the state of democracy in 2020. In 15 years, a big share of countries became less democratic, regardless of which region of the world they were in. Oceania was the only region that increased the share of Free countries between 2005 and 2020. Every other region experienced a decrease in the share of Free and / or Partially Free countries. Africa experienced a drop in share of both Free and Partially Free countries, as the share of Not Free countries grew, while similarly share of Asian countries shifted from Partially Free to Not Free.
-
-#############################
-####### Question 2.d ########
-#############################
-
 
 # Isolate the least developed countries (LDC)
 ldc <- fh_un %>%
