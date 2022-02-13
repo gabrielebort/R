@@ -1,10 +1,3 @@
----
-title: "PSET1"
-author: "Gabriele Bortolotti, Natalie Brown, Grant Beard"
-date: "1/29/2022"
-output: html_document
----
-  
   
 rm(list = ls())
 #install.packages("tidyverse")
