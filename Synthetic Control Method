@@ -1,0 +1,282 @@
+
+library(data.table)
+library(ggplot2)
+library(tidyverse)
+library(lubridate)
+library(gridExtra)
+
+setwd("P:/Projects/Competition/Canned Vegetables/MT Sandbox/eurostat_data/")
+
+fi_orange <- "#ee712b"
+fi_blue <- "#535776"
+
+load_clean_data = function(style = "long", path = "sts_inppd_m_1_Data.csv"){
+  raw = fread(path)
+  raw[Value==":", Value := NA]
+  wide_2015 = dcast(raw[UNIT=="Index, 2015=100"],TIME + GEO ~ NACE_R2, value.var = "Value")
+  wide_2015[,':='(date = as.Date(paste(TIME,"01"),format="%YM%m %d"),TIME=NULL)]
+  long = melt(wide_2015,id.vars = c("date","GEO"), na.rm=T, value.name = "ppi", 
+              variable.factor = FALSE, variable.name = "NACE_R2")
+  long[,ppi := as.numeric(gsub(",","",ppi))]
+  if(style=="long") { return(long) }
+  if(style=="wide") { return(dcast(long, date + GEO ~ NACE_R2,value.var = "ppi"))}
+}
+
+l = load_clean_data(style="long")
+w = load_clean_data(style="wide")
+
+w[,cartel := ifelse((year(date)>2013) & GEO %in% c('Italy'),1,0) ]
+w[GEO=="Germany (until 1990 former territory of the FRG)", GEO := "Germany"]
+#w = w[GEO%in%c("Austria", "Bulgaria", "Croatia", "Czechia", "Cyprus", "Denmark", "Finland", "France", "Germany", "Greece", "Hungary", "Italy", "Lithuania", "Luxembourg", "Malta", "Netherlands", "Norway", "Portugal", "Romania", "Slovakia", "Slovenia", "Spain", "Sweden")]
+w = w[GEO%in%c("France", "Germany", "Greece", "Hungary", "Italy","Spain", "Sweden") & date>"2004-01-01"]
+
+
+group_no = 1:length(unique(w$GEO))
+names(group_no) = unique(w$GEO)
+w$group_no = group_no[w$GEO]
+
+library(Synth)
+
+# w$year <- format(w$date, format="%Y")
+# 
+# w2 <- w %>% group_by(GEO, year) %>% 
+#   summarise_at(vars("MIG - consumer goods", "MIG - energy", "Manufacture of food products", "Processing and preserving of fruit and vegetables", "group_no", "cartel"), mean)
+# 
+# w2 <- as.data.frame(w2)
+# w2$year <- as.numeric(w2$year)
+
+w$year <- as.integer(w$date)
+
+dataprep.out <- dataprep(w,
+                         predictors = c("MIG - consumer goods", "MIG - energy", "Manufacture of food products"),
+                         predictors.op = c("mean"), 
+                         dependent = c("Processing and preserving of fruit and vegetables"),
+                         unit.variable = "group_no",
+                         time.variable = "year",
+                         treatment.identifier = c('Italy'),
+                         controls.identifier = which(!names(group_no)%in%c("Italy", "France")),
+                         time.predictors.prior = unique(w$year[w$year >= as.numeric(as.Date("2013-01-01")) & w$year <= 19113]),
+                         unit.names.variable = "GEO",
+                         time.optimize.ssr = unique(w$year[w$year >= as.numeric(as.Date("2013-01-01")) & w$year <= 19113]),
+                         time.plot = unique(w$year[w$year >= 12449 & w$year <= 19113]))
+
+# dataprep.out obtains four values (X1,X0,Z1,Z0) that allow us to derive causal inference.
+
+# X1: the control case before the treatment 
+dataprep.out$X1
+
+# X0: the control cases after the treatment
+dataprep.out$X0
+
+# Z1: the treatment case before the treatment
+dataprep.out$Z1
+
+# Z0: the treatment case after the treatment
+dataprep.out$Z0
+
+# Step 2: run synth()
+synth.out = synth(data.prep.obj = dataprep.out, method = "BFGS")
+
+
+# To calculate the difference between the real Italy and the synthetic control as follows:
+gaps <- dataprep.out$Y1plot - (dataprep.out$Y0plot %*% synth.out$solution.w)
+
+gaps[,1]
+
+# turn the dates back to date format
+dataprep.out$tag$time.plot <- as.Date(dataprep.out$tag$time.plot, origin = "1970-01-01")
+
+
+# To present some summary tables,
+
+synth.tables = synth.tab(dataprep.res = dataprep.out, synth.res = synth.out)
+
+names(synth.tables)
+
+# Note: synth.tables$tab.pred is a table comparing pre-treatment predictor values 
+# for the treated unit, the synthetic control, and all the units in the sample
+
+synth.tables$tab.pred
+
+# To check the relative importance of each counrty
+synth.tables$tab.w
+
+# Sweden is 51% -> 51%
+# France is 26% -> 25%
+# Germany is 6% -> 9%
+# Hungary is 6% -> 5%
+# Greece is 6% -> 6%
+# Spain is 5% -> 4%
+
+# Weights add up to 1 
+sum(synth.tables$tab.w$w.weights)
+
+path.plot(synth.res=synth.out,dataprep.res = dataprep.out, 
+          Ylab="Canned Vegetables Prices",Xlab="year",
+          Ylim = c(70,120),
+          Legend = c("Italy","Synthetic Italy"),
+          Legend.position = "bottomright")
+
+
+gaps.plot(synth.res = synth.out, dataprep.res = dataprep.out,
+          Ylab = "Gap in Canned Vegetables Prices", 
+          Xlab= "year",
+          Main = NA)
+
+y0plot1 <- dataprep.out$Y0plot %*% synth.out$solution.w
+gap2 <- dataprep.out$Y1plot - (dataprep.out$Y0plot %*% 
+                                synth.out$solution.w)
+
+day <- lubridate::ymd('2013-06-01')
+
+
+# FRANCE Graph
+
+# plotting_fr <- cbind(as.data.frame(as.Date(as.integer(rownames(gap2)), origin = "1970-01-01")), as.data.frame(gap2), as.data.frame(y0plot1), as.data.frame(dataprep.out$Y1plot))
+# colnames(plotting_fr) <- c("Year", "Markup", "Synthetic_France", "France")
+
+fr_plot1 <- plotting_fr %>% ggplot(aes(Year)) + 
+  geom_line(aes(Year, France,  color="PPI"), size = 1.5) + 
+  geom_line(aes(Year, Synthetic_France, color="Modelled PPI"), size = 1.5) +
+  scale_x_date(date_breaks = "year" , date_labels = "%Y") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  labs(title = "France - Price Index Comparison", y = "PPI Index") + 
+  scale_color_manual(name = "Legend", values = c("PPI" = fi_orange, "Modelled PPI" = fi_blue)) +
+  theme(legend.position = c(0.8, 0.2)) + 
+  annotate(geom = "vline",
+           x = day,
+           xintercept = day,
+           linetype = "dashed") + 
+  annotate(geom = "text",
+           label = "End of Cartel",
+           x = day,
+           y = 82,
+           angle = 0, 
+           hjust = 1.1)
+
+fr_plot1
+
+fr_plot2 <- plotting_fr %>% ggplot(aes(Year)) + 
+  geom_line(aes(Year, Markup,  color="Percent Gap"), size = 1.5) + 
+  geom_line(aes(Year, Markup-Markup,  color="line"), size = 1.5, linetype = "dashed") + 
+  geom_vline(xintercept = 0) +
+  scale_x_date(date_breaks = "year" , date_labels = "%Y") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  labs(title = "France - Gap Between Modelled and Actual PPI", y = "Percent Gap") + 
+  scale_color_manual(name = "Legend", values = c("Percent Gap" = fi_orange)) +
+  theme(legend.position = c(0.8, 0.8))  + 
+  annotate(geom = "vline",
+           x = day,
+           xintercept = day,
+           linetype = "dashed") + 
+  annotate(geom = "text",
+           label = "End of Cartel",
+           x = day,
+           y = -4,
+           angle = 0, 
+           hjust = 1.1)
+
+fr_plot2
+
+
+# ITALY Graph
+
+# plotting <- cbind(as.data.frame(as.Date(as.integer(rownames(gap2)), origin = "1970-01-01")), as.data.frame(gap2), as.data.frame(y0plot1), as.data.frame(dataprep.out$Y1plot))
+# colnames(plotting) <- c("Year", "Markup", "Synthetic_Italy", "Italy")
+
+italy_plot1 <- plotting %>% ggplot(aes(Year)) + 
+  geom_line(aes(Year, Italy,  color="PPI"), size = 1.5) + 
+  geom_line(aes(Year, Synthetic_Italy, color="Modelled PPI"), size = 1.5) +
+  scale_x_date(date_breaks = "year" , date_labels = "%Y") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  labs(title = "Italy - Price Index Comparison", y = "PPI Index") + 
+  scale_color_manual(name = "Legend", values = c("PPI" = fi_orange, "Modelled PPI" = fi_blue)) +
+  theme(legend.position = c(0.8, 0.2))  + 
+  annotate(geom = "vline",
+           x = day,
+           xintercept = day,
+           linetype = "dashed") + 
+  annotate(geom = "text",
+           label = "End of Cartel",
+           x = day,
+           y = 82,
+           angle = 0, 
+           hjust = 1.1)
+  
+italy_plot1
+
+italy_plot2 <- plotting %>% ggplot(aes(Year)) + 
+  geom_line(aes(Year, Markup,  color="Percent Gap"), size = 1.5) + 
+  geom_line(aes(Year, Markup-Markup,  color="line"), size = 1.5, linetype = "dashed") + 
+  geom_vline(xintercept = 0) +
+  scale_x_date(date_breaks = "year" , date_labels = "%Y") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  labs(title = "Italy - Gap Between Modelled and Actual PPI", y = "Percent Gap") + 
+  scale_color_manual(name = "Legend", values = c("Percent Gap" = fi_orange)) +
+  theme(legend.position = c(0.8, 0.8)) + 
+  annotate(geom = "vline",
+           x = day,
+           xintercept = day,
+           linetype = "dashed") + 
+  annotate(geom = "text",
+           label = "End of Cartel",
+           x = day,
+           y = 11,
+           angle = 0, 
+           hjust = 1.1)
+
+
+italy_plot2
+
+# GERMANY Graph
+
+plotting_de <- cbind(as.data.frame(as.Date(as.integer(rownames(gap2)), origin = "1970-01-01")), as.data.frame(gap2), as.data.frame(y0plot1), as.data.frame(dataprep.out$Y1plot))
+colnames(plotting_de) <- c("Year", "Markup", "Synthetic_ger", "Germany")
+
+germany_plot1 <- plotting_de %>% ggplot(aes(Year)) + 
+  geom_line(aes(Year, Germany,  color="PPI"), size = 1.5) + 
+  geom_line(aes(Year, Synthetic_ger, color="Modelled PPI"), size = 1.5) +
+  scale_x_date(date_breaks = "year" , date_labels = "%Y") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  labs(title = "Germany - Price Index Comparison", y = "PPI Index") + 
+  scale_color_manual(name = "Legend", values = c("PPI" = fi_orange, "Modelled PPI" = fi_blue)) +
+  theme(legend.position = c(0.8, 0.2))  + 
+  annotate(geom = "vline",
+           x = day,
+           xintercept = day,
+           linetype = "dashed") + 
+  annotate(geom = "text",
+           label = "End of Cartel",
+           x = day,
+           y = 112,
+           angle = 0, 
+           hjust = 1.1)
+
+germany_plot1
+
+germany_plot2 <- plotting_de %>% ggplot(aes(Year)) + 
+  geom_line(aes(Year, Markup,  color="Percent Gap"), size = 1.5) + 
+  geom_line(aes(Year, Markup-Markup,  color="line"), size = 1.5, linetype = "dashed") + 
+  geom_vline(xintercept = 0) +
+  scale_x_date(date_breaks = "year" , date_labels = "%Y") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  labs(title = "Germany - Gap Between Modelled and Actual PPI", y = "Percent Gap") + 
+  scale_color_manual(name = "Legend", values = c("Percent Gap" = fi_orange)) +
+  theme(legend.position = c(0.8, 0.2)) + 
+  annotate(geom = "vline",
+           x = day,
+           xintercept = day,
+           linetype = "dashed") + 
+  annotate(geom = "text",
+           label = "End of Cartel",
+           x = day,
+           y = 8,
+           angle = 0, 
+           hjust = 1.1)
+
+
+germany_plot2
+
+write.csv(plotting_de, "P:/Projects/Competition/Canned Vegetables/MT Sandbox/eurostat_data/data_germany.csv")
+
+# grid.arrange(fr_plot1, italy_plot1, fr_plot2, italy_plot2, ncol=2, nrow=2)
