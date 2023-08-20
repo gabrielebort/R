@@ -277,6 +277,8 @@ germany_plot2 <- plotting_de %>% ggplot(aes(Year)) +
 
 germany_plot2
 
+# test GitHub 
+
 write.csv(plotting_de, "P:/Projects/Competition/Canned Vegetables/MT Sandbox/eurostat_data/data_germany.csv")
 
 # grid.arrange(fr_plot1, italy_plot1, fr_plot2, italy_plot2, ncol=2, nrow=2)
